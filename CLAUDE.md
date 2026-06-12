@@ -4,34 +4,72 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This is a **greenfield project**. As of this writing the repository contains only documentation (`README.md` and `Doc/`) — no source code, build files, or Android project scaffolding exist yet. The full specification lives in [Doc/project_description.txt](Doc/project_description.txt); product/hardware references are the PDFs in [Doc/](Doc/). When implementation begins, this file should be updated with real build/test/lint commands.
+This is a **greenfield project**. As of this writing the repository contains only documentation — no source code, build files, or Android project scaffolding exist yet. The full, authoritative specification lives in [Doc/project_description.txt](Doc/project_description.txt) (read it first); product/hardware references are the PDFs in [Doc/](Doc/). When implementation begins, update this file with the real build/test/lint commands.
 
 ## What is being built
 
-**Polar** — a native Android app that builds a sailboat performance polar diagram from live NMEA 2000 telemetry. It connects to an onboard **Actisense W2K-1 Wi-Fi Gateway**, logs sailing data over time, derives "target speed" curves from the history, and renders both the historical targets and a live performance indicator on a 360° polar canvas.
+**Polar** — a native Android app that builds a sailboat performance polar diagram from live NMEA 2000 (N2K) telemetry. It connects to an onboard **Actisense W2K-1 Wi-Fi Gateway**, logs sailing data over time, derives rolling "target speed" curves from the history, and renders both the targets and a live performance indicator on a 360° polar canvas. It also tracks GPS position so the last 3 runs can be reviewed as a speed-colored trace on a nautical map.
 
-## Planned technical stack
+The W2K-1 is configured to emit the **N2K ASCII** plain-text format, so the app reads pre-assembled, human-readable messages — there is **no need to reassemble fast-packet/multi-packet frames**.
+
+## Architecture — the one thing to understand first
+
+The project is an **Android multi-module Gradle** build whose governing rule is **dependency inversion for portability**: all contracts (interfaces + domain models) live in the pure-Kotlin **`:core`** module, and *every other module depends only on `:core`* — never on each other. A thin **`:app`** module wires concrete implementations together at runtime via a factory that reads settings. This is deliberate: it lets modules (e.g. communication) be lifted into other projects, and lets implementations be swapped (Wi-Fi → Bluetooth, NMEA 2000 → another protocol) without touching the rest of the system. **Preserve this rule** — if you find yourself adding a module-to-module dependency, the contract belongs in `:core` instead.
+
+### Modules (12)
+
+| Module | Role | Platform |
+|---|---|---|
+| `:app` | Entry point, DI (Hilt), foreground Service host, transport/protocol factory. Glue only. | Android |
+| `:core` | Contracts hub: all domain models + all interfaces. Depends on nothing. | Pure Kotlin |
+| `:comm:transport` | Raw transport, emits framed `Flow<String>`. Wi-Fi now, Bluetooth later. | Pure Kotlin |
+| `:comm:nmea` | N2K ASCII parser → `TelemetrySample` + `PositionFix`. Takes a `Transport` by injection. | Pure Kotlin |
+| `:logic:timing` | 1 Hz throttling of the stream. | Pure Kotlin |
+| `:logic:filtering` | Cleansing: drop spikes, tacks/jibes, engine-PGN-active periods. | Pure Kotlin |
+| `:logic:calculation` | TWS×TWA matrix, max-SOW tracking, target-curve derivation. | Pure Kotlin |
+| `:data` | Room persistence; implements `SampleRepository` + `TrackRepository`. | Android |
+| `:ui` | Compose: polar canvas + osmdroid map (OSM base + OpenSeaMap overlay). | Android |
+| `:logging` | Rolling diagnostic logs (size from `:config`), gzip, email export. Implements `Logger`. | Android |
+| `:config` | DataStore settings, reactive `Flow<Settings>`. Implements `SettingsRepository`. | Android |
+| `:tracking` | Groups `PositionFix` into runs (last 3), speed→color, N2K-preferred/phone-fallback merge. | Pure Kotlin |
+
+The split into **`:comm:transport`** (generic, knows nothing about NMEA) and **`:comm:nmea`** (the parser) is intentional — it keeps the transport reusable. Keep parsing out of the transport module.
+
+### Data flow
+
+- **Performance:** `:comm:transport` (lines) → `:comm:nmea` (`TelemetrySample`) → `:logic:timing` (1 Hz) → `:logic:filtering` → `:data` (persist) + `:logic:calculation` (matrix/curves) → `:ui` (live marker + target curves).
+- **Tracking:** `PositionSource` (N2K position preferred, phone GPS fallback) → `:tracking` (runs, speed→color) → `:data` → `:ui` (speed-colored trace on the map).
+
+`:app` reads `Flow<Settings>` and a factory selects the matching `Transport` (comm type) and parser (protocol). Adding a protocol/transport/position source later = one new impl module + one enum value + one factory branch.
+
+### Key PGNs
+
+| PGN | Data | Used for |
+|---|---|---|
+| 128259 | Speed, Water Referenced → **SOW** | polar performance |
+| 130306 | Wind Data → **TWS, TWA** | polar performance |
+| 129025 | Position, Rapid Update → **lat/lon** | tracking |
+| 129026 | COG & SOG, Rapid Update → **COG, SOG** | tracking |
+| 127250 | Vessel Heading → **true heading** | tracking |
+
+`TelemetrySample(sow, tws, twa, timestamp)` and `PositionFix(lat, lon, timestamp, sog, cog, heading)` are the whole data model — everything downstream derives from them.
+
+## Tech stack
 
 | Concern | Technology |
 |---|---|
-| Language | Kotlin |
-| UI | Jetpack Compose, drawing via the Canvas API |
-| Networking | Java sockets / Ktor — long-lived background socket thread |
-| Persistence | Room (over SQLite) |
+| Language / async | Kotlin; Coroutines + Flow (the spine; keeps pure modules Android-free) |
+| UI | Jetpack Compose (Canvas API for the polar plot) |
+| Networking | Java sockets / Ktor — long-lived socket in an Android foreground Service |
+| Persistence | Room (SQLite) |
+| Settings | Jetpack DataStore |
+| Maps | osmdroid — OSM base + OpenSeaMap seamark overlay, offline-tile capable |
+| DI | Hilt (in `:app` only; pure modules expose plain constructors) |
 
-## Architecture (intended)
+Build defaults: minSdk 26, latest compileSdk, Kotlin DSL build scripts, `libs.versions.toml` version catalog.
 
-Three pipeline stages, matching the milestones in the project description:
+## Git workflow
 
-1. **Ingest** — A background service holds a continuous TCP/UDP socket to the W2K-1 (Access Point mode at `192.168.4.1`, or Client mode via the boat router; data server ports `60001–60003`). The gateway is configured to emit the **N2K ASCII** output format, which delivers pre-assembled, human-readable messages — so there is **no need to reassemble fast-packet/multi-packet frames** in the app. Parse plain-text lines for the target PGNs.
-
-2. **Filter + log** — Persist filtered samples to Room at **1 Hz**. Data-cleansing filters must drop or pause logging during unsustainable spikes (waves, tacks/jibes) or when an engine PGN appears on the bus, to keep "target" history clean. Aggregate samples into a matrix keyed by True Wind Speed (0–30 kt) × True Wind Angle (1–360°), tracking the max boat speed per cell.
-
-3. **Visualize** — A Compose Canvas renders a radial grid (axes every 30°), concentric speed rings capped at 0–30 kt, multi-colored target-curve polylines (max historical speed per wind-speed tier), and a live marker plotting instantaneous TWA/TWS/SOW over the targets.
-
-### Key PGNs to parse
-
-- **PGN 128259** (Speed, Water Referenced) → Boat Speed Over Water (SOW)
-- **PGN 130306** (Wind Data) → True Wind Speed (TWS) and True Wind Angle (TWA)
-
-These three values (SOW, TWS, TWA) are the entire data model — everything downstream is derived from them.
+- `master` — releases only.
+- `develop` — integration branch for ongoing work.
+- `feature/*` — branch off `develop` per feature, merge back into `develop`.

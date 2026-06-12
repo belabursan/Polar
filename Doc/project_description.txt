@@ -1,74 +1,262 @@
-Integrating the [Actisense W2K-1 Gateway](https://actisense.com/products/w2k-1-nmea-2000-wifi-gateway/) into the scope gives the project a concrete technical baseline. [1] 
-Since the Actisense W2K-1 handles multi-packet assembly natively, you do not need to build complex transport-protocol code. The app can simply read pre-assembled messages straight over the network. [2] 
-The updated, comprehensive project description is detailed below:
-------------------------------
-## Project Description: Sailboat Polar Diagram Creator## 1. Project Overview
-The goal of this project is to develop a native Android application that interfaces with a sailboat's NMEA 2000 (N2K) network via an onboard Actisense W2K-1 Wi-Fi Gateway. The app will continuously capture telemetry, save it to a local historical database, and use that information to build a rolling "target speed" performance model. Live performance data will be rendered over a custom 360-degree polar canvas layout. [1, 3, 4] 
-------------------------------
-## 2. Hardware & Protocol Specification## Hardware Interface
+==================================================================
+PROJECT DESCRIPTION: Polar — Sailboat Performance Polar Diagram App
+==================================================================
 
-* 
-* Device: Actisense W2K-1 Gateway connected to the boat’s NMEA 2000 backbone. [1, 3] 
-* Network Protocol: Wi-Fi link configured as either an Access Point (direct connection to 192.168.4.1) or as a Client connected to the boat's local router. [5, 6] 
-* Transport Layer: Continuous network stream over TCP or UDP (configurable via the [Actisense Web Interface](https://actisense.com/knowledge-base/nmea-2000/w2k-1-nmea-2000-to-wifi-gateway/nmea-2000-ascii-output-format/) on default data server ports like 60001–60003). [2, 5] 
-* 
+1. PROJECT OVERVIEW
+-------------------------------------------------------------------
+Polar is a native Android application that interfaces with a sailboat's
+NMEA 2000 (N2K) network via an onboard Actisense W2K-1 Wi-Fi Gateway.
+The app continuously captures telemetry, saves it to a local historical
+database, and uses that information to build a rolling "target speed"
+performance model. Live performance data is rendered over a custom
+360-degree polar canvas. It also tracks GPS position so recent sailing
+runs can be reviewed as a speed-colored trace on a nautical map.
 
-## Data Protocol & Parsing
-The application will be built around the "N2K ASCII" output format configured on the Actisense W2K-1. This format converts N2K messages into human-readable plain text, removing the need for the app to reassemble complex multi-packet or fast-packet strings. [2, 7] 
-The app will target and parse the following standard Parameter Group Numbers (PGNs):
-
-* 
-* PGN 128259 (Speed, Water Referenced): Extracted for continuous Boat Speed Over Water (SOW).
-* PGN 130306 (Wind Data): Extracted for True Wind Speed (TWS) and True Wind Angle (TWA).
-* 
-
-------------------------------
-## 3. Core Functional Requirements## Data Management (Historical Logging)
-
-* 
-* Local Caching: A local database (SQLite/Room) that records filtered SOW, TWS, and TWA entries at a rate of 1Hz (once per second).
-* Data Cleansing Filters: To protect historical "target" accuracy, the database will temporarily pause logging or drop points if a sudden, unsustainable spike occurs (e.g., catching a massive wave wave, tacking/jibing, or when an active engine PGN is detected on the network).
-* Target Array Construction: Data will be aggregated into discrete matrix blocks based on True Wind Speed (0 to 30 knots) and True Wind Angle (1 to 360 degrees).
-* 
-
-## Visualization & UI Layout
-
-* 
-* Radial Grid Layout: A 360-degree circular coordinate plot centered around the vessel.
-* Angular Axis Intervals: Distinct radial axes rendered at every 30 degrees ($0^{\circ}, 30^{\circ}, 60^{\circ}, 90^{\circ}, 120^{\circ}, 150^{\circ}, 180^{\circ} \dots 360^{\circ}$).
-* Concentric Distance Rings: Nested circles defining the wind speed or boat speed scales, explicitly capped from 0 to 30 knots.
-* Target Line Overlay: Multi-colored polyline curves overlaying the grid. Each curve represents the maximum historical speed reached in the database for that specific wind velocity tier (e.g., curves for 10kts, 15kts, 20kts wind).
-* Live Performance Indicator: A prominent marker mapping the boat's instantaneous TWA, TWS, and SOW on top of the historical curves to show efficiency in real-time.
-* 
-
-------------------------------
-## 4. Technical Stack
-
-| Component [3, 8] | Selected Technology | Reason |
-|---|---|---|
-| Development Language | Kotlin | Modern, memory-safe, and native Android standard. |
-| Networking Architecture | Java Network Sockets / Ktor | Opens an uninterrupted background socket thread to listen to the Actisense Wi-Fi data stream. |
-| Local Database Engine | Room Persistence Library | Provides an abstraction layer over SQLite for high-volume data writes. |
-| UI Rendering Engine | Jetpack Compose (Canvas API) | Gives pixel-perfect control to draw 30-degree radial grids, responsive polylines, and smooth real-time markers. |
-
-------------------------------
-## 5. Development Milestones
-
-[Milestone 1: Actisense Stream] ➔ [Milestone 2: Filtering Engine] ➔ [Milestone 3: 30° Radial Canvas]
+Because the Actisense W2K-1 assembles multi-packet messages natively and
+can emit them as plain-text "N2K ASCII", the app reads pre-assembled,
+human-readable messages straight off the network — no fast-packet /
+multi-packet reassembly is needed in the app.
 
 
-   1. Milestone 1: Actisense Connection & Parsing: Implement background services to open a socket connection to the W2K-1, verify data reception, and successfully log raw PGN 128259 and PGN 130306 text lines.
-   2. Milestone 2: Database Caching & Max Extraction: Build the schema to record data and design the sorting algorithm that isolates the maximum boat speeds to generate the target curves.
-   3. Milestone 3: Polar Visualization: Code the Android graphics UI to draw the 30-degree circular lines, populate the 0-30 knot rings, and plot both the live indicator and target lines simultaneously. [4] 
+2. HARDWARE & PROTOCOL SPECIFICATION
+-------------------------------------------------------------------
+Hardware interface
+  * Device: Actisense W2K-1 Gateway on the boat's NMEA 2000 backbone.
+  * Network: Wi-Fi, either Access Point mode (direct connection to
+    192.168.4.1) or Client mode (connected to the boat's router).
+  * Transport: continuous network stream over TCP or UDP, configurable
+    via the Actisense Web Interface (default data server ports
+    60001-60003).
 
-------------------------------
-Would you like to build this yourself using Android Studio, or are you planning to hire a developer to build it for you? If you are building it yourself, I can provide a Kotlin sample code block showing how to open the TCP socket to connect to your Actisense gateway. [3, 5] 
+Data protocol & parsing
+  The app is built around the "N2K ASCII" output format. It targets the
+  following Parameter Group Numbers (PGNs):
 
-[1] [https://actisense.com](https://actisense.com/products/w2k-1-nmea-2000-wifi-gateway/)
-[2] [https://actisense.com](https://actisense.com/knowledge-base/nmea-2000/w2k-1-nmea-2000-to-wifi-gateway/nmea-2000-ascii-output-format/)
-[3] [https://actisense.com](https://actisense.com/wp-content/uploads/2020/01/W2K-1-Data-Sheet-issue-1.3.pdf)
-[4] [https://www.youtube.com](https://www.youtube.com/watch?v=FddJTfUnyoM&t=10)
-[5] [https://actisense.com](https://actisense.com/news/how-to-use-actisense-w2k-1-with-nmea-reader/)
-[6] [https://actisense.com](https://actisense.com/knowledge-base/nmea-2000/w2k-1-nmea-2000-to-wifi-gateway/using-opencpn-with-the-actisense-w2k-1-nmea-2000/)
-[7] [https://www.marinwebben.se](https://www.marinwebben.se/wi-fi/wifi-forstarkare/w2k-nmea2000-wifi)
-[8] [https://www.marinwebben.se](https://www.marinwebben.se/wi-fi/wifi-forstarkare/w2k-nmea2000-wifi)
+  Performance data:
+    * PGN 128259 (Speed, Water Referenced) -> Boat Speed Over Water (SOW)
+    * PGN 130306 (Wind Data)               -> True Wind Speed (TWS),
+                                               True Wind Angle (TWA)
+  Position data (for tracking):
+    * PGN 129025 (Position, Rapid Update)  -> latitude / longitude
+    * PGN 129026 (COG & SOG, Rapid Update) -> Course Over Ground (COG),
+                                              Speed Over Ground (SOG)
+    * PGN 127250 (Vessel Heading)          -> true heading (bow direction)
+
+  The protocol layer is designed to be extensible: NMEA 2000 is the only
+  protocol now, but additional protocols can be added later behind the
+  same interface.
+
+
+3. ARCHITECTURE
+-------------------------------------------------------------------
+The application is built as an Android multi-module Gradle project. The
+guiding principle is DEPENDENCY INVERSION for portability: all contracts
+(interfaces + domain models) live in a single pure-Kotlin module, :core.
+Every other module depends ONLY on :core's interfaces — never on each
+other directly. A thin :app module wires concrete implementations
+together at runtime. This makes individual modules (e.g. communication)
+liftable into other projects with minimal change, and allows swapping
+implementations (Wi-Fi -> Bluetooth, NMEA 2000 -> another protocol)
+without touching the rest of the system.
+
+Technical stack
+  | Concern        | Technology                                       |
+  |----------------|--------------------------------------------------|
+  | Language       | Kotlin                                           |
+  | Async spine    | Kotlin Coroutines + Flow                         |
+  | UI             | Jetpack Compose (Canvas API for the polar plot)  |
+  | Networking     | Java sockets / Ktor (long-lived socket thread)   |
+  | Persistence    | Room (over SQLite)                               |
+  | Settings store | Jetpack DataStore                                |
+  | Maps           | osmdroid (OSM base + OpenSeaMap seamark overlay) |
+  | DI             | Hilt (in :app; pure modules stay framework-free) |
+
+Build defaults
+  * minSdk 26, latest compileSdk.
+  * Kotlin DSL build scripts + a libs.versions.toml version catalog.
+  * The continuous socket runs inside an Android foreground Service so
+    the OS does not kill the stream.
+
+
+4. MODULES (12)
+-------------------------------------------------------------------
+1.  :app
+    Android entry point. MainActivity, dependency wiring (Hilt), the
+    foreground Service host, and the factory that reads Settings to
+    instantiate the correct Transport and protocol parser at runtime.
+    Glue only — not intended to be portable.
+
+2.  :core                                              [pure Kotlin]
+    The contracts hub. Depends on nothing. Holds all domain models
+    (TelemetrySample(sow, tws, twa, timestamp),
+     PositionFix(lat, lon, timestamp, sog, cog, heading), Run,
+     Settings, ...) and all interfaces:
+      Transport, TelemetrySource, PositionSource,
+      SampleRepository, TrackRepository, SettingsRepository, Logger.
+
+3.  :comm:transport                                    [pure Kotlin]
+    Raw transport. Opens the link and emits framed Flow<String>. Knows
+    nothing about NMEA. Wi-Fi (TCP/UDP to the W2K-1) now; Bluetooth
+    later — both behind the Transport interface. Includes connection
+    state and reconnect handling.
+
+4.  :comm:nmea                                         [pure Kotlin]
+    N2K ASCII parser. Receives a Transport by constructor injection and
+    parses lines into domain data:
+      performance PGNs (128259, 130306)        -> TelemetrySample
+      position PGNs    (129025, 129026, 127250) -> PositionFix
+                                                   (lat/lon, SOG, COG, heading)
+    Implements TelemetrySource and feeds PositionSource. Unit-testable
+    against captured sample lines.
+
+5.  :logic:timing                                      [pure Kotlin]
+    1 Hz throttling / sampling clock for the incoming stream.
+
+6.  :logic:filtering                                   [pure Kotlin]
+    Data cleansing to protect target accuracy: pause or drop logging on
+    unsustainable spikes (waves), during tacks/jibes, or when an active
+    engine PGN is detected on the network.
+
+7.  :logic:calculation                                 [pure Kotlin]
+    Aggregates samples into a matrix keyed by True Wind Speed (0-30 kn)
+    x True Wind Angle (1-360 deg), tracking the maximum SOW per cell,
+    and derives the per-wind-tier target curves.
+
+8.  :data                                              [Android]
+    Room persistence. Implements SampleRepository (telemetry history)
+    and TrackRepository (recorded runs). Single owner of the database.
+
+9.  :ui                                                [Android]
+    Jetpack Compose. Renders:
+      * Polar canvas: 30-degree radial axes, concentric 0-30 kn rings,
+        multi-colored per-wind-tier target polylines, and a live marker
+        plotting instantaneous TWA/TWS/SOW over the targets.
+      * Map screen (osmdroid): OSM base layer + OpenSeaMap seamark
+        overlay, showing recent runs as a speed-colored trace.
+    Observes Flow<Settings> for scale, color, language, night mode, etc.
+
+10. :logging                                           [Android]
+    App diagnostic logging (separate from telemetry data). Rolling files
+    sized by the configurable logFileSize setting (default ~1 MB) with
+    rotation; gzip compression; export by email (share intent with the
+    compressed log attached). Implements Logger; reads its size cap from
+    :config so changes apply without a restart.
+
+11. :config                                            [Android]
+    User/app settings persisted with Jetpack DataStore, exposed
+    reactively as Flow<Settings>. Implements SettingsRepository.
+    Settings:
+      * protocol        (enum Protocol { NMEA2000 }, extensible)
+      * comm type       (enum CommType { WIFI_TCP, WIFI_UDP, BLUETOOTH })
+      * ui: scale, color/theme, language, night mode
+      * tracking on/off
+      * trackInterval (position sampling rate, 1-5 s; default 1 s)
+      * speed-color bands (e.g. 0-3 kn yellow, 3-6 kn orange, ...)
+      * seamarks overlay on/off, base-map source
+      * logFileSize (rolling log-file cap)
+
+12. :tracking                                          [pure Kotlin]
+    Groups PositionFix values into "runs", keeps the last 3 (evicts the
+    oldest), and maps each segment's speed to a color band (read from
+    :config). Samples position at the configurable trackInterval (1-5 s).
+    Each point retains SOG, COG and heading for on-map display. Gated by
+    the tracking on/off flag. Consumes a
+    PositionSource and merges two sources with N2K preferred and the
+    phone GPS as fallback. Persists runs via TrackRepository (:data).
+    The phone-GPS PositionSource (Android FusedLocationProvider) is the
+    one Android-specific piece in this area and is wired in at the app
+    layer.
+
+
+5. DATA FLOW
+-------------------------------------------------------------------
+Performance pipeline:
+  :comm:transport (lines)
+    -> :comm:nmea (TelemetrySample)
+    -> :logic:timing (throttle to 1 Hz)
+    -> :logic:filtering (drop bad points)
+    -> :data (SampleRepository, persist) + :logic:calculation (matrix/curves)
+    -> :ui (live marker + target curves on the polar canvas)
+
+Position / tracking pipeline:
+  PositionSource [N2K position (from :comm:nmea), preferred]
+                [phone GPS (FusedLocationProvider), fallback]
+    -> :tracking (group into runs, last 3, speed -> color)
+    -> :data (TrackRepository, persist)
+    -> :ui (speed-colored trace on the osmdroid map)
+
+Settings drive wiring: :app reads Flow<Settings> and a factory selects
+the matching Transport (comm type) and parser (protocol). Adding a new
+protocol, transport, or position source later = one new implementation
+module + one enum value + one factory branch; nothing else changes.
+
+
+6. CORE FUNCTIONAL REQUIREMENTS
+-------------------------------------------------------------------
+Data management (historical logging)
+  * Local caching of filtered SOW, TWS and TWA at 1 Hz.
+  * Cleansing filters that pause/drop logging on spikes, tacks/jibes,
+    or active engine PGNs, to protect target accuracy.
+  * Target array construction: a TWS(0-30) x TWA(1-360) matrix holding
+    the maximum historical speed per cell.
+
+Visualization & UI layout
+  * Radial grid: 360-degree plot centered on the vessel, axes every
+    30 degrees (0, 30, 60 ... 360).
+  * Concentric distance rings defining the speed scale, capped 0-30 kn.
+  * Target line overlay: multi-colored polylines, one curve per wind-
+    speed tier (e.g. 10 kn, 15 kn, 20 kn), each the max historical speed
+    for that tier.
+  * Live performance indicator: a prominent marker mapping the boat's
+    instantaneous TWA/TWS/SOW over the historical curves.
+
+Tracking
+  * Records GPS position into runs; retains the last 3 runs.
+  * Position sampled at a configurable interval (track accuracy, 1-5 s).
+  * Each point stores SOG, COG and true heading (0-360 deg), viewable on
+    the map.
+  * Trace rendered on a nautical map (osmdroid; OSM + OpenSeaMap),
+    colored by speed band (configurable, e.g. 0-3 kn yellow,
+    3-6 kn orange, ...).
+
+Logging
+  * Rolling diagnostic log files, size configurable in settings.
+  * Compressed (gzip) and exportable by email.
+
+Configuration
+  * Protocol, communication type, UI (scale, color, language, night
+    mode), tracking on/off, speed-color bands, map overlay, and log
+    file size — all user-configurable and reactive.
+
+
+7. DEVELOPMENT MILESTONES
+-------------------------------------------------------------------
+M0 - Scaffolding
+  Create the Gradle multi-module project (all 12 modules), wire the
+  dependency graph, version catalog, and an empty app that builds and
+  launches. Stand up :config (needed to select transport/protocol).
+
+M1 - Communication & parsing
+  :core contracts + models; WiFiTransport (socket, background coroutine,
+  reconnect, connection state); :comm:nmea parser for performance and
+  position PGNs with unit tests; foreground Service; :logging; a minimal
+  screen that logs received samples to prove reception.
+
+M2 - Filtering, persistence & calculation
+  :data Room schema + repositories; :logic:timing (1 Hz); :logic:filtering
+  (cleansing); :logic:calculation (matrix + target curves); full
+  performance pipeline wired end to end.
+
+M3 - Polar UI & tracking
+  :ui Compose polar canvas (radial axes, rings, target polylines, live
+  marker); ViewModels exposing StateFlow; :tracking runs + the osmdroid
+  map trace (OSM + OpenSeaMap, speed-colored); settings screens wired
+  into :config.
+
+
+-------------------------------------------------------------------
+Reference hardware/protocol links:
+  Actisense W2K-1:        https://actisense.com/products/w2k-1-nmea-2000-wifi-gateway/
+  N2K ASCII output:       https://actisense.com/knowledge-base/nmea-2000/w2k-1-nmea-2000-to-wifi-gateway/nmea-2000-ascii-output-format/
+  OpenSeaMap seamarks:    https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png
+-------------------------------------------------------------------
